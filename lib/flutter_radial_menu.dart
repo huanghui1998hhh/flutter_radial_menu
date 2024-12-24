@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 Future<T?> showRadialMenu<T extends Object?>(
   BuildContext context, {
+  required Set<T?> options,
   required PointerDownEvent event,
+  double startRadius = -pi / 2,
   MultiDragGestureRecognizer? recognizer,
 }) async {
   recognizer ??= (ImmediateMultiDragGestureRecognizer()
@@ -14,6 +17,7 @@ Future<T?> showRadialMenu<T extends Object?>(
   final resultCompleter = Completer<T?>();
 
   late OverlayEntry overlayEntry;
+  late DragInfo dragInfo;
 
   Drag dragStart(Offset position) {
     final OverlayState overlay = Overlay.of(context);
@@ -21,10 +25,12 @@ Future<T?> showRadialMenu<T extends Object?>(
     final CapturedThemes capturedThemes =
         InheritedTheme.capture(from: context, to: overlay.context);
 
-    final dragInfo = _DragInfo<T>(
+    dragInfo = DragInfo<T>(
+      options: options,
       completer: resultCompleter,
       capturedThemes: capturedThemes,
       position: position,
+      startRadius: startRadius,
     );
 
     overlayEntry = OverlayEntry(builder: dragInfo.createProxy);
@@ -41,29 +47,52 @@ Future<T?> showRadialMenu<T extends Object?>(
 
   overlayEntry.remove();
   overlayEntry.dispose();
+  dragInfo.dispose();
 
   return result;
 }
 
-class _DragInfo<T extends Object?> extends Drag {
-  _DragInfo({
+class DragInfo<T extends Object?> extends Drag {
+  DragInfo({
+    required this.options,
     required this.completer,
     required this.capturedThemes,
     required this.position,
+    required this.startRadius,
   });
 
+  final Set<T?> options;
+  final double startRadius;
   final Offset position;
   final Completer<T?> completer;
   final CapturedThemes capturedThemes;
 
+  Offset _startAndEndDelta = Offset.zero;
+  Offset get startAndEndDelta => _startAndEndDelta;
+  set startAndEndDelta(Offset value) {
+    _startAndEndDelta = value;
+
+    final angle = atan2(value.dy, value.dx);
+
+    double modifiedAngle = angle - startRadius;
+    if (modifiedAngle < 0) {
+      modifiedAngle += pi * 2;
+    }
+
+    final index = (modifiedAngle ~/ (pi * 2 / options.length)) % options.length;
+    selectedIndex.value = index;
+  }
+
+  ValueNotifier<int?> selectedIndex = ValueNotifier(null);
+
   @override
   void update(DragUpdateDetails details) {
-    print(details);
+    startAndEndDelta += details.delta;
   }
 
   @override
   void end(DragEndDetails details) {
-    completer.complete(null);
+    completer.complete(options.elementAt(selectedIndex.value ?? 0));
   }
 
   @override
@@ -71,12 +100,13 @@ class _DragInfo<T extends Object?> extends Drag {
     completer.complete(null);
   }
 
+  void dispose() {
+    selectedIndex.dispose();
+  }
+
   Widget createProxy(BuildContext context) {
     return capturedThemes.wrap(
-      RadialMenu(
-        position: position,
-        completer: completer,
-      ),
+      RadialMenu(dragInfo: this),
     );
   }
 }
@@ -84,34 +114,55 @@ class _DragInfo<T extends Object?> extends Drag {
 class RadialMenu<T extends Object?> extends StatelessWidget {
   const RadialMenu({
     super.key,
-    required this.position,
-    this.completer,
+    required this.dragInfo,
   });
 
-  final Offset position;
-  final Completer<T?>? completer;
+  final DragInfo dragInfo;
 
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      left: position.dx - 36,
-      top: position.dy - 36,
-      child: const SizedBox(
-        width: 72,
-        height: 72,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.all(Radius.circular(36)),
-            color: Colors.red,
-          ),
-          child: Align(
-            child: Text(
-              'X',
-              style: TextStyle(fontSize: 54, fontWeight: FontWeight.w900),
-            ),
-          ),
+      left: dragInfo.position.dx - 100,
+      top: dragInfo.position.dy - 100,
+      child: CustomPaint(
+        size: const Size(200, 200),
+        painter: RaialPainter(
+          itemCount: dragInfo.options.length,
+          startRadius: dragInfo.startRadius,
+          selectedIndex: dragInfo.selectedIndex,
         ),
       ),
     );
   }
+}
+
+class RaialPainter extends CustomPainter {
+  RaialPainter({
+    required this.itemCount,
+    required this.startRadius,
+    required this.selectedIndex,
+  }) : super(repaint: selectedIndex);
+
+  final int itemCount;
+  final double startRadius;
+  final ValueNotifier<int?> selectedIndex;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (var i = 0; i < itemCount; i++) {
+      canvas.drawArc(
+        Rect.fromCircle(
+          center: size.center(Offset.zero),
+          radius: min(size.width, size.height) / 2,
+        ),
+        startRadius + i * (pi * 2 / itemCount),
+        pi * 2 / itemCount,
+        true,
+        Paint()..color = selectedIndex.value == i ? Colors.red : Colors.blue,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(RaialPainter oldDelegate) => false;
 }

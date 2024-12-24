@@ -24,8 +24,11 @@ class MyHome extends StatelessWidget {
     return Scaffold(
       body: Builder(builder: (context) {
         return Listener(
-          onPointerDown: (event) {
-            showRadialMenu(context, event: event);
+          onPointerDown: (event) async {
+            final result = await showRadialMenu(context,
+                event: event,
+                options: List.generate(6, (index) => index).toSet());
+            print('result: $result');
           },
           child: ColoredBox(
             color: Colors.transparent,
