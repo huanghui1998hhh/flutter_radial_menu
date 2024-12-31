@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -9,6 +10,7 @@ Future<T?> showRadialMenu<T extends Object?>(
   required Set<T?> options,
   required PointerDownEvent event,
   double startRadius = -math.pi / 2,
+  RadialMenuThemeData? theme,
   MultiDragGestureRecognizer? recognizer,
 }) async {
   recognizer ??= (ImmediateMultiDragGestureRecognizer()
@@ -29,6 +31,7 @@ Future<T?> showRadialMenu<T extends Object?>(
       options: options,
       completer: resultCompleter,
       capturedThemes: capturedThemes,
+      theme: theme,
       position: position,
       startRadius: startRadius,
     );
@@ -59,18 +62,31 @@ class DragInfo<T extends Object?> extends Drag {
     required this.capturedThemes,
     required this.position,
     required this.startRadius,
+    required this.theme,
   });
 
   final Set<T?> options;
+  final RadialMenuThemeData? theme;
   final double startRadius;
   final Offset position;
   final Completer<T?> completer;
   final CapturedThemes capturedThemes;
 
+  late final double centerRadius = () {
+    final radius = theme?.radius ?? 100;
+    final centerRadiusProportion = theme?.centerRadiusProportion ?? 0.5;
+    return radius * centerRadiusProportion;
+  }();
+
   Offset _startAndEndDelta = Offset.zero;
   Offset get startAndEndDelta => _startAndEndDelta;
   set startAndEndDelta(Offset value) {
     _startAndEndDelta = value;
+
+    if (value.distance < centerRadius) {
+      selectedIndex.value = null;
+      return;
+    }
 
     final angle = math.atan2(value.dy, value.dx);
 
@@ -107,7 +123,87 @@ class DragInfo<T extends Object?> extends Drag {
 
   Widget createProxy(BuildContext context) {
     return capturedThemes.wrap(
-      RadialMenu(dragInfo: this),
+      RadialMenu(
+        dragInfo: this,
+        theme: theme ?? RadialMenuTheme.maybeOf(context),
+      ),
+    );
+  }
+}
+
+class RadialMenuTheme extends InheritedTheme {
+  const RadialMenuTheme({
+    super.key,
+    required super.child,
+    required this.data,
+  });
+
+  final RadialMenuThemeData data;
+
+  static RadialMenuThemeData? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<RadialMenuTheme>()?.data;
+
+  @override
+  Widget wrap(BuildContext context, Widget child) {
+    return RadialMenuTheme(data: data, child: child);
+  }
+
+  @override
+  bool updateShouldNotify(RadialMenuTheme oldWidget) => data != oldWidget.data;
+}
+
+@immutable
+class RadialMenuThemeData with Diagnosticable {
+  const RadialMenuThemeData({
+    this.backgroundColor,
+    this.selectedBackgroundColor,
+    this.foregroundColor,
+    this.selectedForegroundColor,
+    this.itemPadding,
+    this.centerPadding,
+    this.radius,
+    this.centerRadiusProportion,
+    this.foregroundAlignment,
+  });
+
+  final Color? backgroundColor;
+  final Color? selectedBackgroundColor;
+  final Color? foregroundColor;
+  final Color? selectedForegroundColor;
+  final double? itemPadding;
+  final double? centerPadding;
+  final double? radius;
+
+  /// 0-1之间的值
+  final double? centerRadiusProportion;
+
+  /// 0-1之间的值
+  final double? foregroundAlignment;
+
+  RadialMenuThemeData copyWith({
+    Color? backgroundColor,
+    Color? selectedBackgroundColor,
+    Color? foregroundColor,
+    Color? selectedForegroundColor,
+    double? itemPadding,
+    double? centerPadding,
+    double? radius,
+    double? centerRadiusProportion,
+    double? foregroundAlignment,
+  }) {
+    return RadialMenuThemeData(
+      backgroundColor: backgroundColor ?? this.backgroundColor,
+      selectedBackgroundColor:
+          selectedBackgroundColor ?? this.selectedBackgroundColor,
+      foregroundColor: foregroundColor ?? this.foregroundColor,
+      selectedForegroundColor:
+          selectedForegroundColor ?? this.selectedForegroundColor,
+      itemPadding: itemPadding ?? this.itemPadding,
+      centerPadding: centerPadding ?? this.centerPadding,
+      radius: radius ?? this.radius,
+      centerRadiusProportion:
+          centerRadiusProportion ?? this.centerRadiusProportion,
+      foregroundAlignment: foregroundAlignment ?? this.foregroundAlignment,
     );
   }
 }
@@ -116,19 +212,29 @@ class RadialMenu<T extends Object?> extends StatelessWidget {
   const RadialMenu({
     super.key,
     required this.dragInfo,
+    required this.theme,
   });
 
   final DragInfo dragInfo;
+  final RadialMenuThemeData? theme;
 
   @override
   Widget build(BuildContext context) {
-    const double padding = 4;
+    final itemPadding = theme?.itemPadding ?? 4;
+    final centerPadding = theme?.centerPadding ?? itemPadding;
+    final radius = theme?.radius ?? 100;
+    final centerRadius = theme?.centerRadiusProportion ?? 0.5;
+    final centerRadiusProportion = theme?.centerRadiusProportion ?? 0.5;
+    final foregroundAlignment = theme?.foregroundAlignment ?? 0.84;
+    final backgroundColor =
+        theme?.backgroundColor ?? Colors.black.withAlpha(144);
+    final selectedBackgroundColor =
+        theme?.selectedBackgroundColor ?? Colors.black;
 
-    const radius = 100;
-    const centerRadius = 0.5;
     final centerAngleOffset =
-        math.pi / 2 - math.acos((padding / 2) / (radius * centerRadius));
-    final outerAngleOffset = math.pi / 2 - math.acos((padding / 2) / radius);
+        math.pi / 2 - math.acos((itemPadding / 2) / (radius * centerRadius));
+    final outerAngleOffset =
+        math.pi / 2 - math.acos((itemPadding / 2) / radius);
 
     return Positioned(
       left: dragInfo.position.dx - radius,
@@ -147,17 +253,19 @@ class RadialMenu<T extends Object?> extends StatelessWidget {
                       color: const Color(0xFF2A8CD3),
                       borderRadius: BorderRadius.circular(100),
                     ),
-                    child: const SizedBox(
-                      width: radius - padding * 2,
-                      height: radius - padding * 2,
+                    child: SizedBox(
+                      width:
+                          (radius * centerRadiusProportion - centerPadding) * 2,
+                      height:
+                          (radius * centerRadiusProportion - centerPadding) * 2,
                     ),
                   ),
                 ),
                 for (var i = 0; i < dragInfo.options.length; i++)
                   RepaintBoundary(
                     child: CustomPaint(
-                      size: const Size(radius * 2, radius * 2),
-                      painter: PiePainter(
+                      size: Size(radius * 2, radius * 2),
+                      painter: _PiePainter(
                         startAngle: dragInfo.startRadius +
                             i * (math.pi * 2 / dragInfo.options.length),
                         sweepAngle: math.pi * 2 / dragInfo.options.length,
@@ -165,8 +273,8 @@ class RadialMenu<T extends Object?> extends StatelessWidget {
                         outerAngleOffset: outerAngleOffset,
                         centerRadius: centerRadius,
                         color: value == i
-                            ? Colors.black
-                            : Colors.black.withAlpha(144),
+                            ? selectedBackgroundColor
+                            : backgroundColor,
                       ),
                       child: Align(
                         alignment: Alignment(
@@ -175,19 +283,20 @@ class RadialMenu<T extends Object?> extends StatelessWidget {
                                     (i + 0.5) *
                                         (math.pi * 2 / dragInfo.options.length),
                               ) *
-                              0.84,
+                              foregroundAlignment,
                           math.sin(
                                 dragInfo.startRadius +
                                     (i + 0.5) *
                                         (math.pi * 2 / dragInfo.options.length),
                               ) *
-                              0.84,
+                              foregroundAlignment,
                         ),
                         child: Text(
                           i.toString(),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 20,
+                            height: 1,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -203,14 +312,14 @@ class RadialMenu<T extends Object?> extends StatelessWidget {
   }
 }
 
-class PiePainter extends CustomPainter {
-  PiePainter({
+class _PiePainter extends CustomPainter {
+  _PiePainter({
     required this.startAngle,
     required this.sweepAngle,
-    this.centerAngleOffset = 0,
-    this.outerAngleOffset = 0,
+    required this.centerAngleOffset,
+    required this.outerAngleOffset,
     required this.centerRadius,
-    this.color = Colors.red,
+    required this.color,
   });
 
   final double centerAngleOffset;
@@ -276,62 +385,9 @@ class PiePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(PiePainter oldDelegate) =>
+  bool shouldRepaint(_PiePainter oldDelegate) =>
       oldDelegate.startAngle != startAngle ||
       oldDelegate.sweepAngle != sweepAngle ||
       oldDelegate.centerRadius != centerRadius ||
       oldDelegate.color != color;
-}
-
-class RadialPainter extends CustomPainter {
-  RadialPainter({
-    required this.itemCount,
-    required this.startRadius,
-    required this.selectedIndex,
-  }) : super(repaint: selectedIndex);
-
-  final int itemCount;
-  final double startRadius;
-  final ValueNotifier<int?> selectedIndex;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final sectionRadiusRect = Rect.fromCircle(center: center, radius: 100);
-    final centerRadiusRect = Rect.fromCircle(center: center, radius: 50);
-    final sweepRadians = math.pi * 2 / itemCount;
-
-    for (var i = 0; i < itemCount; i++) {
-      final startRadians = startRadius + i * (math.pi * 2 / itemCount);
-
-      final endRadians = startRadians + sweepRadians;
-      final startLineDirection =
-          Offset(math.cos(startRadians), math.sin(startRadians));
-
-      final startLineFrom = center + startLineDirection * 0.5;
-      final startLineTo = startLineFrom + startLineDirection * 0.5;
-
-      final endLineDirection =
-          Offset(math.cos(endRadians), math.sin(endRadians));
-
-      final endLineFrom = center + endLineDirection * 0.5;
-
-      final path = Path()
-        ..moveTo(startLineFrom.dx, startLineFrom.dy)
-        ..lineTo(startLineTo.dx, startLineTo.dy)
-        ..arcTo(sectionRadiusRect, startRadians, sweepRadians, false)
-        ..lineTo(endLineFrom.dx, endLineFrom.dy)
-        ..arcTo(centerRadiusRect, endRadians, -sweepRadians, false)
-        ..moveTo(startLineFrom.dx, startLineFrom.dy)
-        ..close();
-
-      canvas.drawPath(
-        path,
-        Paint()..color = selectedIndex.value == i ? Colors.red : Colors.blue,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(RadialPainter oldDelegate) => false;
 }

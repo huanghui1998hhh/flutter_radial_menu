@@ -25,9 +25,16 @@ class MyHome extends StatelessWidget {
       body: Builder(builder: (context) {
         return Listener(
           onPointerDown: (event) async {
-            final result = await showRadialMenu(context,
-                event: event,
-                options: List.generate(6, (index) => index).toSet());
+            final result = await showRadialMenu(
+              context,
+              event: event,
+              options: List.generate(6, (index) => index).toSet(),
+              theme: RadialMenuThemeData(
+                itemPadding: 2,
+                centerRadiusProportion: 0.5,
+                foregroundAlignment: 0.83,
+              ),
+            );
             print('result: $result');
           },
           child: ColoredBox(
